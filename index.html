@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>IntoxiAI - Drunk or Sober Detector</title>
+    <style>
+        .prediction-red {
+            color: red;
+        }
+        .prediction-green {
+            color: green;
+        }
+        .prediction-blue {
+            color: blue;
+        }
+        #face-detection-box {
+            position: absolute;
+            border: 2px solid red;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="IntoxiAI Logo" class="logo">
+        <div class="options">
+            <div class="upload">
+                <form action="/" method="post" enctype="multipart/form-data">
+                    <input type="file" name="file" accept="image/*">
+                    <button type="submit">Upload and Predict</button>
+                </form>
+            </div>
+            <div class="camera">
+                <button id="open-camera">Open Camera</button>
+                <video id="video" width="224" height="224" autoplay></video>
+                <button id="snap" style="display:none;">Capture Photo</button>
+                <canvas id="canvas" width="224" height="224" style="display:none;"></canvas>
+                <form id="capture-form" action="/" method="post">
+                    <input type="hidden" name="captured_image" id="captured_image">
+                    <button type="submit" id="predict-camera" style="display:none;">Predict from Camera</button>
+                </form>
+                <div id="face-detection-box"></div>
+            </div>
+        </div>
+        {% if label %}
+            {% set prediction_class = 'prediction-blue' %}
+            {% if label == 'DRUNK' and confidence > 70 %}
+                {% set prediction_class = 'prediction-red' %}
+            {% elif label == 'SOBER' and confidence > 55 %}
+                {% set prediction_class = 'prediction-green' %}
+            {% endif %}
+            <h2 class="{{ prediction_class }}">Prediction: {{ label }} with {{ '%.2f'|format(confidence) }}% confidence</h2>
+        {% endif %}
+    </div>
+    <script>
+        const openCamera = document.getElementById('open-camera');
+        const video = document.getElementById('video');
+        const snap = document.getElementById('snap');
+        const canvas = document.getElementById('canvas');
+        const capturedImage = document.getElementById('captured_image');
+        const predictCamera = document.getElementById('predict-camera');
+        const faceDetectionBox = document.getElementById('face-detection-box');
+        const context = canvas.getContext('2d');
+    
+        let stream;
+    
+        openCamera.addEventListener('click', () => {
+            video.style.display = 'block';
+            snap.style.display = 'block';
+            predictCamera.style.display = 'none';
+            faceDetectionBox.style.display = 'none';
+    
+            navigator.mediaDevices.getUserMedia({ video: { width: 224, height: 224 } })
+                .then(s => {
+                    stream = s;
+                    video.srcObject = stream;
+                    detectFace(); // Start face detection
+                })
+                .catch(err => {
+                    console.error("Error accessing the camera: " + err);
+                });
+        });
+    
+        snap.addEventListener('click', () => {
+            context.drawImage(video, 0, 0, 224, 224);
+            const dataURL = canvas.toDataURL('image/png');
+            capturedImage.value = dataURL;
+    
+            video.style.display = 'none';
+            snap.style.display = 'none';
+            predictCamera.style.display = 'block';
+            faceDetectionBox.style.display = 'none';
+    
+            const tracks = stream.getTracks();
+            tracks.forEach(track => track.stop());
+            video.srcObject = null;
+        });
+    
+        function detectFace() {
+            // Check if OpenCV.js is loaded
+            if (typeof cv === 'undefined') {
+                console.error('OpenCV.js is not loaded.');
+                return;
+            }
+    
+            const videoElement = document.getElementById('video');
+            const canvasElement = document.getElementById('canvas');
+            const context = canvasElement.getContext('2d');
+            const faceBox = document.getElementById('face-detection-box');
+    
+            // Load Haar Cascade for face detection
+            cv.onRuntimeInitialized = () => {
+                const faceCascade = new cv.CascadeClassifier(cv.HAAR_FRONTALFACE_ALT2);
+    
+                function detect() {
+                    context.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+                    const img = cv.imread(canvasElement);
+                    const gray = new cv.Mat();
+                    cv.cvtColor(img, gray, cv.COLOR_RGBA2GRAY, 0);
+    
+                    const faces = new cv.RectVector();
+                    faceCascade.detectMultiScale(gray, faces, 1.1, 3, 0);
+    
+                    // Clear previous detections
+                    faceDetectionBox.style.display = 'none';
+    
+                    for (let i = 0; i < faces.size(); i++) {
+                        const face = faces.get(i);
+                        const x = face.x;
+                        const y = face.y;
+                        const width = face.width;
+                        const height = face.height;
+    
+                        // Update face detection box
+                        faceDetectionBox.style.display = 'block';
+                        faceDetectionBox.style.width = width + 'px';
+                        faceDetectionBox.style.height = height + 'px';
+                        faceDetectionBox.style.left = x + 'px';
+                        faceDetectionBox.style.top = y + 'px';
+                    }
+    
+                    gray.delete();
+                    img.delete();
+                    faces.delete();
+                    requestAnimationFrame(detect);
+                }
+    
+                detect();
+            };
+        }
+    </script>    
+    <!-- Include OpenCV.js library for face detection -->
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+</body>
+</html>
